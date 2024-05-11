@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <FastLED.h>
+#include <avr/sleep.h>
 
 #define DATA_PIN 0    // DS
 #define CLOCK_PIN 2   // SHCP
@@ -10,6 +11,7 @@
 #define READINGS 16
 #define COLORS 3
 #define TIME_FOR_OBJECT_SWITCH 10000
+#define TIME_TILL_SLEEP 64  // 64 = around 32s
 
 CRGB colorArr[] = {CRGB::Red, CRGB::Green, CRGB::Blue};  // Array of colors
 unsigned int black[COLORS];                              // Values for black paper
@@ -35,6 +37,7 @@ byte segment[] = {
     0b10011110,  // E
     0b10001110   // F
 };
+byte timer = 0;
 
 /// @brief shift out the bits to the 74HC595
 /// @param digit digit place [0,5]
@@ -142,11 +145,28 @@ void setup() {
     readingToDigits(values[0], 5);  // red
     readingToDigits(values[1], 3);  // green
     readingToDigits(values[2], 1);  // blue
+
+    // Set up timer 1
+    cli();  // disable global interrupts
+    TCCR1 |= 0b00001111;
+    TIMSK |= 1 << TOIE1;
+    sei();  // enable global interrupts
 }
 
 /// @brief Function running in a loop after the setup
 void loop() {
     for (int n = 5; n >= 0; n--) {
         commit(n, n % 2 == 0 ? (segment[digits[n]] | 0b00000001) : segment[digits[n]]);
+    }
+}
+
+ISR(TIMER1_OVF_vect) {
+    timer++;
+    if (timer >= TIME_TILL_SLEEP) {
+        commit(8, 0b00000000);
+        set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+        sleep_enable();
+        ADCSRA &= ~(1 << ADEN);  // disable ADC
+        sleep_cpu();
     }
 }
